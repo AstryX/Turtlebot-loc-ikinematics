@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 import rospy
 from numpy import maximum,minimum
+import numpy as np
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64MultiArray
 from time import time, sleep
@@ -10,61 +11,51 @@ class RobotArm:
     
     def __init__(self): 
         self.angle1 = np.deg2rad(0)
-        self.angle2 = np.deg2rad(0)
-        self.angle3 = 0.87
-		self.angle4 = np.deg2rad(0)
-        self.angle5 = np.deg2rad(0)
-		#Gripper for angle 6, higher value means more open
-        self.angle6 = 1.57
-		self.limb1 = 1.0391
-		self.limb2 = 1.5811
-		self.limb3 = 1.5
-		self.limb4 = 0.65
-		self.limb5 = 0.9
-		#Experimental, not sure how to use, ignore for now
-		self.limb6 = 0.4315
-
-    def forwardKinematics(self, _angle1, _angle2, _angle3, _angle4, _angle5, _angle6):
+        self.angle2 = 0.87
+        self.angle3 = np.deg2rad(0)
+        self.angle4 = np.deg2rad(0)
+        #Gripper for angle 5, higher value means more open
+        self.angle5 = 1.57
+        self.limb1 = 0.08945
+        #limb2 total 0.10595
+        self.limb2straight = 0.1
+        self.limb2side = 0.035
+        self.limb3 = 0.1
+        self.limb4 = 0.1076
+    def forwardKinematics(self, _angle1, _angle2, _angle3, _angle4):
         # Define the homogeneous transformation matrices for the 3-link planar arm
         
         self.angle1 = _angle1
         self.angle2 = _angle2
         self.angle3 = _angle3
-		self.angle4 = _angle4
-        self.angle5 = _angle5
-        self.angle6 = _angle6
+        self.angle4 = _angle4
 
-        self.t01 = np.matrix([[np.cos(self.angle1), -np.sin(self.angle1), 0, 0],
-                        [np.sin(self.angle1), np.cos(self.angle1), 0, 0],
-                        [0, 0, 1, 0],
+        self.t01 = np.matrix([[np.cos(self.angle1), 0, np.sin(self.angle1), 0],
+                        [0, 1, 0, 0],
+                        [-np.sin(self.angle1), 0, np.cos(self.angle1), 0],
                         [0, 0, 0, 1]])  
     
-        self.t12 = np.matrix([[np.cos(self.angle2), -np.sin(self.angle2), 0, self.limb1],
-                        [np.sin(self.angle2), np.cos(self.angle2), 0, 0],
+        self.t12 = np.matrix([[np.cos(self.angle2), -np.sin(self.angle2), 0, 0],
+                        [np.sin(self.angle2), np.cos(self.angle2), 0, self.limb1],
                         [0, 0, 1, 0],
                         [0, 0, 0, 1]])    
 
-        self.t23 = np.matrix([[np.cos(self.angle3), -np.sin(self.angle3), 0, self.limb2],
-                        [np.sin(self.angle3), np.cos(self.angle3), 0, 0],
+        self.t23 = np.matrix([[np.cos(self.angle3), -np.sin(self.angle3), 0, self.limb2side],
+                        [np.sin(self.angle3), np.cos(self.angle3), 0, self.limb2straight],
                         [0, 0, 1, 0],
-                        [0, 0, 0, 1]])  
-						
+                        [0, 0, 0, 1]]) 
+                        
         self.t34 = np.matrix([[np.cos(self.angle4), -np.sin(self.angle4), 0, self.limb3],
                         [np.sin(self.angle4), np.cos(self.angle4), 0, 0],
                         [0, 0, 1, 0],
-                        [0, 0, 0, 1]])  
-						
-        self.t45 = np.matrix([[np.cos(self.angle5), -np.sin(self.angle5), 0, self.limb4],
-                        [np.sin(self.theta3), np.cos(self.theta3), 0, 0],
-                        [0, 0, 1, 0],
-                        [0, 0, 0, 1]])    
+                        [0, 0, 0, 1]])   
 
-        self.t5end = np.matrix([[0, 0, 0, self.limb5],
+        self.t4end = np.matrix([[0, 0, 0, self.limb4],
                         [0, 0, 0, 0],
                         [0, 0, 0, 0],
                         [0, 0, 0, 1]])      
  
-        self.t0end = self.t01*self.t12*self.t23*self.t34*self.t45*self.t5end
+        self.t0end = self.t01*self.t12*self.t23*self.t34*self.t4end
         
         return self.t0end
     
@@ -72,16 +63,14 @@ class RobotArm:
         trans2 = self.t01*self.t12
         trans3 = trans2*self.t23
         trans4 = trans3*self.t34
-        trans5 = trans4*self.t45
 
         j2 = [trans2[0,3],trans2[1,3],trans2[2,3]]
         j3 = [trans3[0,3],trans3[1,3],trans3[2,3]]
         j4 = [trans4[0,3],trans4[1,3],trans4[2,3]]
-        j5 = [trans5[0,3],trans5[1,3],trans5[2,3]]
         
         endeff = [self.t0end[0,3],self.t0end[1,3],self.t0end[2,3]]
         
-        return j2,j3,j4,j5,endeff
+        return j2,j3,j4,endeff
 
 def joint_callback(data):
     print("Msg: {}".format(data.header.seq))
@@ -96,22 +85,21 @@ def read_joint_states():
 def clean_joint_states(data):
     #lower_limits = [0, -1.57, -1.57, -1.57, -1.57,   -1]
     #upper_limits = [0,  1.57,  1.57,  1.57,  1.57, 1.57]
-	lower_limits = [0, -1.57, -1.57, -1.57, -1.57]
-    upper_limits = [0,  1.57,  1.57,  1.57,  1.57]
+    lower_limits = [-1.57, -1.57, -1.57, -1.57]
+    upper_limits = [1.57,  1.57,  1.57,  1.57]
     clean_lower = maximum(lower_limits,data)
     clean_upper = minimum(clean_lower,upper_limits)
     return list(clean_upper)
 
-def computeGeomJacobian(jnt2pos, jnt3pos, jnt4pos, jnt5pos, endEffPos):
+def computeGeomJacobian(jnt2pos, jnt3pos, jnt4pos, endEffPos):
     ai = np.array([0,0,1])
     col0 = np.array(endEffPos)
     col1 = np.array(endEffPos) - np.array(jnt2pos)
     col2 = np.array(endEffPos) - np.array(jnt3pos)
-	col3 = np.array(endEffPos) - np.array(jnt4pos)
-	col4 = np.array(endEffPos) - np.array(jnt5pos)
-    J = np.array([np.cross(ai,col0), np.cross(ai,col1), np.cross(ai,col2), np.cross(ai,col3), np.cross(ai,col4)]).T 
+    col3 = np.array(endEffPos) - np.array(jnt4pos)
+    J = np.array([np.cross(ai,col0), np.cross(ai,col1), np.cross(ai,col2), np.cross(ai,col3)]).T 
     return J	
-	
+    
 '''def compute_forward_kinematics(joint_states):
     #0.4315 for the grip from servo to the end
     #0.66 from grip-1 to grip
@@ -145,65 +133,75 @@ def move_arm(goalPos):
 #   [0, shoulder1, shoulder2, elbow, wrist, gripper]
 #3rd -1.22 for ground
 #0.34 for grip
-    initialAngles = np.array(clean_joint_states([0, 0, 0.87, 0, 0]))
-	
-	arm = RobotArm()
-    #forward_kinematics = compute_forward_kinematics(joint_states)
-	
-	# Forward kinematics computation
-	target = goalPos
-
-	T = arm.forwardKinematics(initialAngles[0], initialAngles[1], initialAngles[2],
-		initialAngles[3], initialAngles[4])
-		
-	# x,y coords for all the joints
-	joint2pos, joint3pos, joint4pos, joint5pos, endEffectorPos = arm.findJointPos()
-
-	newAngles = initialAngles
-	endEffectorPosInit = endEffectorPos
-
-	#Number of IK iterations
-	numIT = 100
-
-	for i in range(numIT):
-		
-		# obtain the Jacobian      
-		J = geomJacobian(joint2pos, joint3pos, joint4pos, joint5pos, endEffectorPos)
-		
-		# compute the dy steps
-		newgoal = endEffectorPosInit + (i*(target - endEffectorPosInit))/steps
-		deltaStep = newgoal - endEffectorPos
-		
-		# define the dy
-		subtarget = np.array([deltaStep[0], deltaStep[1], deltaStep[2]]) 
-		
-		# compute dq from dy and pseudo-Jacobian
-		angleChange = np.linalg.pinv(J) * subtarget
-		angleChange = np.array([sum(angleChange[0]), sum(angleChange[1]), sum(angleChange[2],
-			sum(angleChange[3]), sum(angleChange[4]))])
-		
-		# update the q
-		newAngles = newAngles + angleChange
-		newAngles = np.array(clean_joint_states(newAngles))
-
-		# Do forward kinematics for a set angle on each joint
-		T = arm.forwardKinematics(newAngles[0],newAngles[1],newAngles[2],newAngles[3],newAngles[4])
-
-		# Find the x,y coordinates of joints 2, 3 and end effector so they can be plotted
-		joint2pos, joint3pos, joint4pos, joint5pos, endEffectorPos = arm.findJointPos()
-	
-		joint_pos.data = np.concatenate(newAngles, [1.57])
-		jointpub.publish(joint_pos)
-		read_joint_states()
+    initialAngles = np.array(clean_joint_states([1.57, 0, 0, 0]))
     
-	ros::Duration(0.5).sleep();
-	joint_pos.data = np.concatenate(newAngles, [0.34])
-	jointpub.publish(joint_pos)
-	read_joint_states()
+    arm = RobotArm()
+    #forward_kinematics = compute_forward_kinematics(joint_states)
+    
+    # Forward kinematics computation
+    target = goalPos
+
+    T = arm.forwardKinematics(initialAngles[0], initialAngles[1], initialAngles[2],
+        initialAngles[3])
+        
+    # x,y coords for all the joints
+    joint2pos, joint3pos, joint4pos, endEffectorPos = arm.findJointPos()
+    print("Jointpos")
+    print(joint2pos)
+    print(joint3pos)
+    print(joint4pos)
+    print(endEffectorPos)
+    newAngles = initialAngles
+    endEffectorPosInit = endEffectorPos
+
+    #Finish init process properly
+    joint_pos.data = np.concatenate((np.array([0]), np.concatenate((newAngles, np.array([1.57])))))
+    jointpub.publish(joint_pos)
+    read_joint_states()
+    rospy.sleep(1)
+
+    #Number of IK iterations
+    numIT = 100
+    
+    for i in range(numIT):
+        
+        # obtain the Jacobian      
+        J = computeGeomJacobian(joint2pos, joint3pos, joint4pos, endEffectorPos)
+        
+        # compute the dy steps
+        newgoal = endEffectorPosInit + (i*(target - endEffectorPosInit))/steps
+        deltaStep = newgoal - endEffectorPos
+        
+        # define the dy
+        subtarget = np.array([deltaStep[0], deltaStep[1], deltaStep[2]]) 
+        
+        # compute dq from dy and pseudo-Jacobian
+        angleChange = np.linalg.pinv(J) * subtarget
+        angleChange = np.array([sum(angleChange[0]), sum(angleChange[1]), sum(angleChange[2]),
+            sum(angleChange[3])])
+        
+        # update the q
+        newAngles = newAngles + angleChange
+        newAngles = np.array(clean_joint_states(newAngles))
+
+        # Do forward kinematics for a set angle on each joint
+        T = arm.forwardKinematics(newAngles[0],newAngles[1],newAngles[2],newAngles[3])
+
+        # Find the x,y coordinates of joints 2, 3 and end effector so they can be plotted
+        joint2pos, joint3pos, joint4pos, endEffectorPos = arm.findJointPos()
+    
+        joint_pos.data = np.concatenate((np.array([0]), np.concatenate((newAngles, np.array([1.57])))))
+        jointpub.publish(joint_pos)
+        read_joint_states()
+    
+    rospy.sleep(1)
+    joint_pos.data = np.concatenate((np.array([0]), np.concatenate((newAngles, np.array([0.34])))))
+    jointpub.publish(joint_pos)
+    read_joint_states()
 
 if __name__ == '__main__':
     rospy.init_node('move_arm',anonymous=True)
     rate = rospy.Rate(20)
     while not rospy.is_shutdown():
-        move_arm()
+        move_arm([0.035, 0.39, 0])
         rate.sleep()

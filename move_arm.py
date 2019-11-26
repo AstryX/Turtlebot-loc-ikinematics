@@ -7,6 +7,8 @@ from std_msgs.msg import Float64MultiArray
 from time import time, sleep
 import math
 
+
+
 class RobotArm:
     
     def __init__(self): 
@@ -17,7 +19,7 @@ class RobotArm:
         #Gripper for angle 5, higher value means more open
         self.angle5 = 1.57
         self.limb1 = 0.08945
-        #limb2 total 0.10595
+        #limb2 diagonal 0.10595
         self.limb2straight = 0.1
         self.limb2side = 0.035
         self.limb3 = 0.1
@@ -99,41 +101,35 @@ def computeGeomJacobian(jnt2pos, jnt3pos, jnt4pos, endEffPos):
     col3 = np.array(endEffPos) - np.array(jnt4pos)
     J = np.array([np.cross(ai,col0), np.cross(ai,col1), np.cross(ai,col2), np.cross(ai,col3)]).T 
     return J	
-    
-'''def compute_forward_kinematics(joint_states):
-    #0.4315 for the grip from servo to the end
-    #0.66 from grip-1 to grip
-    joint_distances = [1.0391, 1.5811, 1.5, 0.65, 0.9]
-    curKinematics = np.zeros((4, 4))
-    curKinematics[0,0] = 1
-    curKinematics[1,1] = 1
-    curKinematics[2,2] = 1
-    curKinematics[3,3] = 1
-    numDistances = len(joint_distances)
-    for i in range(numDistances):
-        if i == numDistances - 1:
-            curKinematics = curKinematics * joint_distances[i]
-        else:
-            curKinematics = curKinematics * joint_distances[i] * 
-                get_revolute_joint_array(joint_states[i+1]) 
-def get_revolute_joint_array(radians):
-    curMatrix = np.zeros((4, 4))
-    curMatrix[0,0] = 1
-    curMatrix[3,3] = 1
-    curMatrix[1,1] = math.cos(radians)
-    curMatrix[1,2] = -math.sin(radians)
-    curMatrix[2,1] = math.sin(radians)
-    curMatrix[2,2] = math.cos(radians)
-    return curMatrix'''
 
-def move_arm(goalPos):
-    jointpub = rospy.Publisher('joint_trajectory_point',Float64MultiArray, queue_size =10)   
+def init_arm(jointpub, initAngles):
+
+    #Number of smooth movement iterations
+    numIT = 100
+    
+    prevAngles = np.array([0, 0, 0, 0])
+    
+    for i in range(numIT):
+        
+        curStep1 = i*(initAngles[0] - prevAngles[0])/numIT
+        curStep2 = i*(initAngles[1] - prevAngles[1])/numIT
+        curStep3 = i*(initAngles[2] - prevAngles[2])/numIT
+        curStep4 = i*(initAngles[3] - prevAngles[3])/numIT
+        
+        newAngles = np.array([curStep1, curStep2, curStep3, curStep4])
+
+        joint_pos.data = np.concatenate((np.array([0]), np.concatenate((newAngles, np.array([1.57])))))
+        jointpub.publish(joint_pos)
+        read_joint_states()
+    
+def move_arm(goalPos, jointpub, initAngles):
+
     joint_pos = Float64MultiArray()
 #   Joint Position vector should contain 6 elements:
 #   [0, shoulder1, shoulder2, elbow, wrist, gripper]
 #3rd -1.22 for ground
 #0.34 for grip
-    initialAngles = np.array(clean_joint_states([1.57, 0, 0, 0]))
+    initialAngles = initAngles
     
     arm = RobotArm()
     #forward_kinematics = compute_forward_kinematics(joint_states)
@@ -169,7 +165,7 @@ def move_arm(goalPos):
         J = computeGeomJacobian(joint2pos, joint3pos, joint4pos, endEffectorPos)
         
         # compute the dy steps
-        newgoal = endEffectorPosInit + (i*(target - endEffectorPosInit))/steps
+        newgoal = endEffectorPosInit + (i*(target - endEffectorPosInit))/numIT
         deltaStep = newgoal - endEffectorPos
         
         # define the dy
@@ -193,15 +189,35 @@ def move_arm(goalPos):
         joint_pos.data = np.concatenate((np.array([0]), np.concatenate((newAngles, np.array([1.57])))))
         jointpub.publish(joint_pos)
         read_joint_states()
-    
-    rospy.sleep(1)
-    joint_pos.data = np.concatenate((np.array([0]), np.concatenate((newAngles, np.array([0.34])))))
-    jointpub.publish(joint_pos)
-    read_joint_states()
 
 if __name__ == '__main__':
     rospy.init_node('move_arm',anonymous=True)
     rate = rospy.Rate(20)
-    while not rospy.is_shutdown():
-        move_arm([0.035, 0.39, 0])
+    jointpub = rospy.Publisher('joint_trajectory_point',Float64MultiArray, queue_size =10) 
+    initialAngles = np.array(clean_joint_states([1.57, 0, 0, 0]))
+    init_arm(jointpub, initialAngles)
+    
+    #Wait for 5 sec for arm to get to init pos
+    time_start = rospy.get_time()
+    goal_time = time_start + 5
+    while(rospy.get_time() < goal_time):
+        rate.sleep()
+        
+    move_arm([0.035, 0.39, 0], jointpub, initialAngles)
+    
+    #Execute for 10 seconds to let the arm get to destination pos
+    time_start = rospy.get_time()
+    goal_time = time_start + 10
+    while(rospy.get_time() < goal_time):
+        rate.sleep()
+        
+    joint_pos = Float64MultiArray()
+    joint_pos.data = np.concatenate((np.array([0]), np.concatenate((newAngles, np.array([0.34])))))
+    jointpub.publish(joint_pos)
+    read_joint_states()
+    
+    #Allow for 3 seconds for the grapple to grab the lego, may need smoothing
+    time_start = rospy.get_time()
+    goal_time = time_start + 3
+    while(rospy.get_time() < goal_time):
         rate.sleep()

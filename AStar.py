@@ -156,7 +156,51 @@ class Pathfinding:
 		path = list(reversed(path))
 		self.pathToDestination = path 
 		
-map = np.zeros((50,50), dtype=int)
+def computeGridPathPOI(map, startPos, endPos):
+	simulation = Pathfinding(map)
+	simulation.CalculateFinalPath(startPos, endPos)
+	listPOI = []
+	fullPath = simulation.GetPathToDestination()
+
+	prevX = []
+	prevY = []
+	prevDiffX = 0
+	prevDiffY = 0
+	i = 0
+	for tile in simulation.GetPathToDestination():
+		if i == 0:
+			prevX = tile.GetCellPos()[0]
+			prevY = tile.GetCellPos()[1]
+		elif i == 1:
+			prevDiffX = tile.GetCellPos()[0] - prevX
+			prevDiffY = tile.GetCellPos()[1] - prevY
+			prevX = tile.GetCellPos()[0]
+			prevY = tile.GetCellPos()[1]
+		else:
+			curX = tile.GetCellPos()[0]
+			curY = tile.GetCellPos()[1]
+
+			diffX = curX - prevX
+			diffY = curY - prevY
+
+			if diffX == prevDiffX and diffY == prevDiffY:
+				prevDiffX = diffX
+				prevDiffY = diffY
+				prevX = curX
+				prevY = curY
+			else:
+				listPOI.append([prevX, prevY])
+				prevDiffX = diffX
+				prevDiffY = diffY
+				prevX = curX
+				prevY = curY
+		
+		i += 1
+	listPOI.append([prevX, prevY])
+
+	return listPOI
+
+'''	map = np.zeros((50,50), dtype=int)
 maxMapX = 50
 maxMapY = 50
 print("Simulated Map:")
@@ -168,9 +212,12 @@ for i in range(maxMapX):
 			map[i][j] = 1
 		out = out + ("|" + str(map[i][j]))
 	print(out)		
-		
+	
 simulation = Pathfinding(map)
 simulation.CalculateFinalPath([1,1], [45,45])
 for tile in simulation.GetPathToDestination():
 	print("(" + str(tile.GetCellPos()[0]) + "," + str(tile.GetCellPos()[1]) + ")")
-print("Path processing completed!")
+
+listPOI = computeGridPathPOI(map, [1,1], [45,45])
+print(listPOI)
+print("Path processing completed!")'''
